@@ -1,0 +1,28 @@
+server:
+  url: ws://127.0.0.1:8000
+docker:
+  image: ghcr.io/allenai/vla-evaluation-harness/robodojo:v05-f57e163
+  gpus: "0"
+  env:
+    - NVIDIA_DRIVER_CAPABILITIES=all
+    - ACCEPT_EULA=Y
+    - PRIVACY_CONSENT=Y
+    - VK_ICD_FILENAMES=/etc/vulkan/icd.d/nvidia_icd.json
+    - VK_DRIVER_FILES=/etc/vulkan/icd.d/nvidia_icd.json
+  volumes:
+    - "${oc.env:ROBODOJO_ASSETS}:/workspace/RoboDojo/Assets:ro"
+    - "${oc.env:ROBODOJO_ASSETS}:${oc.env:ROBODOJO_ASSETS}:ro"
+benchmarks:
+  - benchmark: vla_eval.benchmarks.robodojo.benchmark:RoboDojoBenchmark
+    mode: sync
+    episodes_per_task: 1
+    max_tasks: 1
+    max_steps: 2000
+    params:
+      tasks: [stack_bowls]
+      env_config: arx_x5
+      seed: 0
+      enable_planner: true
+    recording:
+      record_step: true
+      record_video: true

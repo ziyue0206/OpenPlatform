@@ -1,0 +1,1 @@
+from openplatform.benchmarks.robodojo.reference_policy import ReferencePolicy as ReferencePolicy

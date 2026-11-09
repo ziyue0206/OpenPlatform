@@ -1,0 +1,28 @@
+schema_version: "1"
+name: robodojo-demo
+model:
+  source:
+    kind: local
+    path: /path/to/robodojo-work/src/RoboDojo
+  checkpoint: null
+  runtime:
+    kind: native
+    python: /path/to/robodojo-work/envs/demo-policy/bin/python
+adapter:
+  source:
+    kind: local
+    path: .
+  entrypoint: policy:ReferencePolicy
+  config:
+    policy: demo_policy
+resources:
+  environment_gpu_ids: [0]
+evals:
+  - id: smoke
+    benchmark: robodojo
+    recipe: conda
+    preset: smoke
+    parameters:
+      checkout: /path/to/robodojo-work/src/RoboDojo
+      simulator_python: /path/to/robodojo-work/envs/RoboDojo/bin/python
+      policy: demo_policy

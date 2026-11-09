@@ -1,0 +1,30 @@
+schema_version: "1"
+name: robodojo-pi0
+model:
+  source:
+    kind: local
+    path: /path/to/robodojo-work/src/RoboDojo
+  checkpoint: XPolicyLab/policy/Pi_0/checkpoints/RoboDojo-sim-arx_x5-joint-0/60000
+  runtime:
+    kind: native
+    python: /path/to/robodojo-work/pi0/.venv/bin/python
+    startup_timeout: 600
+adapter:
+  source:
+    kind: local
+    path: .
+  entrypoint: policy:ReferencePolicy
+  config:
+    policy: Pi_0
+resources:
+  environment_gpu_ids: [0]
+  policy_gpu_ids: [1]
+evals:
+  - id: smoke
+    benchmark: robodojo
+    recipe: conda
+    preset: smoke
+    parameters:
+      checkout: /path/to/robodojo-work/src/RoboDojo
+      simulator_python: /path/to/robodojo-work/envs/RoboDojo/bin/python
+      policy: Pi_0

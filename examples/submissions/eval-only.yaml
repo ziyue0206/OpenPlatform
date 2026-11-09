@@ -1,0 +1,53 @@
+# 可用 openplatform validate 校验结构。模型、adapter 和解释器路径相对本 YAML。
+# checkpoint 相对 model.source.path，运行前请提供实际文件和环境。
+schema_version: "1"
+name: my-vla-eval-only
+
+model:
+  source:
+    kind: local
+    path: ./my-model/model
+  checkpoint: weights/base
+  runtime:
+    kind: native
+    python: ./my-model/.venv-policy/bin/python
+
+adapter:
+  source:
+    kind: local
+    path: ./my-model/adapter
+  entrypoint: adapter:Model
+  config: {}
+
+evals:
+  - id: robodojo-smoke
+    benchmark: robodojo
+    recipe: reference
+    preset: smoke
+    # 使用 base checkpoint；低分不阻止运行。
+  - id: libero-spatial
+    benchmark: libero
+    recipe: reference
+    suite: libero_spatial
+    checkpoint: weights/libero
+    # 不同 benchmark 可以选择不同 checkpoint 和模型侧配置。
+    adapter_config: {}
+
+collection:
+  videos: true
+  trace: true
+  policy_calls: true
+  observations: false
+
+resources:
+  # 仅示意两张本机卡，需按自己的硬件和插件已验证配置修改。
+  policy_gpu_ids: [0]
+  environment_gpu_ids: [1]
+
+output:
+  root: ../../runs
+
+training_info:
+  regime: unknown
+  datasets: []
+  notes: 训练背景可后补；无需训练脚本或数据即可 eval。

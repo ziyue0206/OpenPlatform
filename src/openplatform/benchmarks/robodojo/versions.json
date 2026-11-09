@@ -1,0 +1,27 @@
+{
+  "robodojo": {
+    "url": "https://github.com/RoboDojo-Benchmark/RoboDojo.git",
+    "revision": "f57e1633ffed59761bc8e568cfe7530c4b33381c",
+    "submodules": {
+      "XPolicyLab": "5d0be1499634d3176258c8f2e31f5fe816497b0a",
+      "third_party/IsaacLab": "afca7b09d60d8beb9c1cb28b43066499940b969b",
+      "third_party/curobo": "d17b54ce32cba095c0b000c4c58777075d11de0e"
+    }
+  },
+  "assets": {
+    "dataset": "RoboDojo-Benchmark/RoboDojo",
+    "revision": "1127bda94f172d757386945af3eb3a6754d1a4e6",
+    "include": "Assets/**"
+  },
+  "smoke": {
+    "task": "stack_bowls",
+    "env_config": "arx_x5",
+    "action_type": "joint",
+    "seed": 0,
+    "num_envs": 1,
+    "episodes": 1,
+    "policy": "demo_policy",
+    "checkpoint": null
+  },
+  "image": "robodojo:v00-f57e163"
+}

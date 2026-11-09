@@ -1,0 +1,13 @@
+schema_version: "1"
+id: dummy
+version: "1"
+status: development_fixture
+plugin: openplatform.benchmarks.dummy.plugin:DummyPlugin
+default_recipe: reference
+recipes:
+  reference:
+    version: "1"
+    io_profile: dummy-delta-v1
+    default_suite: full
+    suites: [full]
+    presets: [smoke]

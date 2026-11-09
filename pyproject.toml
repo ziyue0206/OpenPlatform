@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openplatform"
+version = "0.1.0"
+description = "Local evaluation tooling for embodied policies"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openplatform-sdk==0.1.0",
+    "pydantic>=2.10,<3",
+    "pyyaml>=6.0.2,<7",
+    "typer>=0.15,<1",
+]
+
+[project.scripts]
+openplatform = "openplatform.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
+
+[tool.uv.sources]
+openplatform-sdk = { workspace = true }
+
+[tool.uv.workspace]
+members = ["sdk"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

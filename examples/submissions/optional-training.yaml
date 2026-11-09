@@ -1,0 +1,51 @@
+# 后续可选 training 扩展的设计示例，当前不可执行。
+# 训练与 eval 都使用用户自己的机器；没有此配置不影响 eval-only。
+schema_version: "1"
+name: my-vla-optional-training
+model:
+  source: {kind: local, path: ./my-model/model}
+  checkpoint: weights/base
+  runtime:
+    kind: native
+    python: ./my-model/.venv-policy/bin/python
+adapter:
+  source: {kind: local, path: ./my-model/adapter}
+  entrypoint: adapter:Model
+  config: {}
+evals:
+  - id: libero-after-training
+    benchmark: libero
+    recipe: reference
+    suite: libero_spatial
+    training:
+      # 默认复用模型运行环境；argv token 由 runtime 映射，不经 shell。
+      entrypoint:
+        - "{python}"
+        - "{adapter_dir}/train.py"
+        - "--config"
+        - "{adapter_dir}/configs/libero.yaml"
+      data:
+        source: local
+        path: ./my-data/libero
+      # 相对本次 training 输出目录；脚本须实际产出该路径。
+      output_checkpoint: checkpoint/final
+    training_info:
+      regime: target_finetuning
+      datasets: [user-provided-libero-data]
+      notes: 用户负责数据版本、训练预算与对比条件。
+  - id: robodojo-direct-eval
+    benchmark: robodojo
+    recipe: reference
+    preset: smoke
+    # 不做训练，直接使用 model.checkpoint。
+collection:
+  videos: true
+  trace: true
+  policy_calls: true
+  observations: false
+resources:
+  # 示例设备选择；以本机硬件与插件支持矩阵为准。
+  policy_gpu_ids: [0]
+  environment_gpu_ids: [1]
+output:
+  root: ../../runs

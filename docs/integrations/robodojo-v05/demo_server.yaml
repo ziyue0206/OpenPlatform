@@ -1,0 +1,6 @@
+# Run vla-eval serve from this configuration's directory.
+script: demo_server.py
+args:
+  host: 127.0.0.1
+  port: 8000
+  env_config: arx_x5

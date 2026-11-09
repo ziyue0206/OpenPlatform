@@ -1,0 +1,54 @@
+# 清单字段设计示例：插件、镜像、profile 和资源尚未实测，不能直接运行。
+schema_version: "1"
+id: robodojo
+version: 0.1.0
+status: planned
+plugin: benchmarks.robodojo.plugin:RoboDojoPlugin
+native:
+  repository: TO_BE_VERIFIED_DURING_B01
+  revision: TO_BE_PINNED_DURING_B01
+runtime:
+  kind: docker
+  dockerfile: docker/Dockerfile
+  image: openplatform/benchmark-robodojo:0.1.0
+  # 正式 recipe 记录构建后的 digest；环境在用户本机准备。
+defaults:
+  recipe: reference
+  io_profile: robodojo-arx-x5-joint-v1
+  suite: full
+recipes:
+  reference:
+    version: "1"
+    io_profile: robodojo-arx-x5-joint-v1
+    suites: [full]
+    presets: [smoke]
+    parameters: {}
+profiles:
+  robodojo-arx-x5-joint-v1:
+    specification: profiles/arx-x5-joint-v1.yaml
+# 下面仅说明资源声明形状，验收时必须以实际测试替换。
+resources:
+  platform: linux/amd64
+  environment:
+    gpus: 1
+    graphics: true
+  policy:
+    gpus: 1
+  placement: explicit_gpu_ids
+  allow_shared_gpu: false
+  verified: false
+assets:
+  lockfile: assets.lock.json
+capabilities:
+  eval: true
+  videos: true
+  trace: true
+  policy_calls: true
+  observation_snapshots: true
+  training_data: false
+metrics:
+  aggregation: native
+  preserve_native_files: true
+  success_rate:
+    unit: ratio
+    direction: higher

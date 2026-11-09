@@ -1,0 +1,15 @@
+# CPU development fixture. Install the SDK into ./.venv before running.
+schema_version: "1"
+name: dummy-cpu
+model:
+  source: {kind: local, path: .}
+  checkpoint: null
+  runtime: {kind: native, python: ./.venv/bin/python}
+adapter:
+  source: {kind: local, path: .}
+  entrypoint: policy:Model
+evals:
+  - id: dummy-smoke
+    benchmark: dummy
+    recipe: reference
+    preset: smoke

@@ -1,0 +1,10 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openplatform-sdk"
+version = "0.1.0"
+description = "Model-side package for OpenPlatform policies"
+requires-python = ">=3.11"
+dependencies = ["msgpack>=1.1,<2", "numpy>=1.26,<3", "websockets>=12,<18"]

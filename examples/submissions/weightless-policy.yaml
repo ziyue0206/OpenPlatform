@@ -1,0 +1,18 @@
+# V00 的 demo_policy 无需 checkpoint。示例中的目录与解释器由用户提供。
+schema_version: "1"
+name: robodojo-weightless-smoke
+
+model:
+  source: {kind: local, path: ./my-demo-policy/model}
+  checkpoint: null
+  runtime: {kind: native, python: ./my-demo-policy/.venv-policy/bin/python}
+
+adapter:
+  source: {kind: local, path: ./my-demo-policy/adapter}
+  entrypoint: adapter:Model
+
+evals:
+  - id: robodojo-smoke
+    benchmark: robodojo
+    recipe: reference
+    preset: smoke

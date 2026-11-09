@@ -1,0 +1,23 @@
+schema_version: "1"
+id: robodojo
+version: f57e163
+status: native_eval
+plugin: openplatform.benchmarks.robodojo.plugin:RoboDojoPlugin
+preparation: openplatform.benchmarks.robodojo.preparation
+default_recipe: conda
+recipes:
+  conda:
+    version: "1"
+    io_profile: robodojo-arx-x5-joint
+    default_suite: stack_bowls
+    suites: [stack_bowls]
+    presets: [smoke, full]
+    max_policy_gpus: 1
+    max_environment_gpus: 1
+  docker:
+    eval_enabled: false
+    version: "1"
+    io_profile: robodojo-arx-x5-joint
+    default_suite: stack_bowls
+    suites: [stack_bowls]
+    presets: [smoke]
