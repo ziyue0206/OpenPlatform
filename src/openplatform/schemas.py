@@ -103,6 +103,7 @@ class CollectionSpec(_Schema):
     trace: bool = True
     policy_calls: bool = True
     observations: bool = False
+    safety: bool = False
 
 
 class ResourcesSpec(_Schema):

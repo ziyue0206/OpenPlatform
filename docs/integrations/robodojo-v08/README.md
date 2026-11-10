@@ -1,5 +1,7 @@
 # RoboDojo 安装与评测
 
+本页记录 0.1.0 的 Conda 部署流程。当前默认入口见 [RoboDojo Docker 安装与评测](../robodojo-docker.md)。 Conda 配方可选启用 [RoboDojo 安全探头](../robodojo-safety/README.md)。
+
 ## 支持范围
 
 | 环境或入口 | 支持范围与证据 |

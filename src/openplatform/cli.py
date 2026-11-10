@@ -146,8 +146,9 @@ def eval(
     runner = ExperimentRunner()
     try:
         manifest = runner.registry.describe(bench)
-        selected = recipe or manifest.default_recipe
-        matches = [e for e in spec.evals if e.benchmark == bench and e.recipe == selected]
+        declared = [e for e in spec.evals if e.benchmark == bench]
+        selected = recipe or (declared[0].recipe if len(declared) == 1 else manifest.default_recipe)
+        matches = [e for e in declared if e.recipe == selected]
         if len(matches) > 1:
             raise ValueError("multiple matching evals in submission; use openplatform run")
         fields = matches[0].model_dump(exclude_unset=True) if matches else {}

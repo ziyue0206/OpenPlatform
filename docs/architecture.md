@@ -16,7 +16,7 @@
 
 MVP 不需要 FastAPI、中心数据库、服务端队列或 React 应用。编排包的 Python 版本不约束模型和 benchmark 环境。Native backend 指用户指定的隔离解释器，不是在编排进程内 import 所有框架。Docker backend 只支持已有验收配方，不承诺任意 simulator 可被通用镜像自动安装。
 
-模型继续运行在宿主机的独立环境。首个 RoboDojo 配方先用宿主机 Conda 建立原生参考，再用同版本上游镜像验证 Docker 交付。GPU 驱动和容器运行权限由目标机器提供。[V05 开发计划](vibe-coding-plan.md#v05-robodojo-基线与对齐条件)
+模型在宿主机的独立环境运行。RoboDojo 的 Docker 配方通过同一原生评测入口启动容器内的仿真，使用本地镜像 ID 并按 attempt 隔离写入目录。GPU 驱动和容器运行权限由目标机器提供。 [Docker 安装与评测](integrations/robodojo-docker.md)
 
 ## 模块及职责
 

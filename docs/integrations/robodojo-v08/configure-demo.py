@@ -10,21 +10,29 @@ import yaml
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("checkout", type=Path)
-    parser.add_argument("conda_envs", type=Path)
+    parser.add_argument(
+        "environment", type=Path, help="Conda env directory or Docker policy Python"
+    )
     parser.add_argument("output", type=Path)
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--recipe", choices=("conda", "docker"), default="conda")
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[3]
     example = repo / "examples/submissions/robodojo-demo"
     config = yaml.safe_load((example / "submission.yaml").read_text(encoding="utf-8"))
     checkout = args.checkout.resolve(strict=True)
-    envs = args.conda_envs.resolve(strict=True)
+    environment = args.environment.absolute()
     config["model"]["source"]["path"] = str(checkout)
-    config["model"]["runtime"]["python"] = str(envs / "demo-policy/bin/python")
-    config["evals"][0]["parameters"].update(
-        checkout=str(checkout), simulator_python=str(envs / "RoboDojo/bin/python")
-    )
+    eval_config = config["evals"][0]
+    eval_config["recipe"] = args.recipe
+    eval_config["parameters"]["checkout"] = str(checkout)
+    if args.recipe == "docker":
+        config["model"]["runtime"]["python"] = str(environment)
+        del eval_config["parameters"]["simulator_python"]
+    else:
+        config["model"]["runtime"]["python"] = str(environment / "demo-policy/bin/python")
+        eval_config["parameters"]["simulator_python"] = str(environment / "RoboDojo/bin/python")
     config["resources"]["environment_gpu_ids"] = [args.gpu]
     args.output.mkdir()
     copyfile(example / "policy.py", args.output / "policy.py")

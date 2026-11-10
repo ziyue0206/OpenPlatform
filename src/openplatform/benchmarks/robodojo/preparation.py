@@ -51,7 +51,8 @@ def inspect(recipe: str, checkout: Path) -> dict:
         platform.system() == "Linux" and platform.machine() == "x86_64",
         "RoboDojo smoke requires a Linux x86_64 RTX host",
     )
-    for tool in ("git", "bash", "python3", "conda", "ffprobe", "nvidia-smi"):
+    recipe_tools = ("conda",) if recipe == "conda" else ("docker",)
+    for tool in ("git", "bash", "python3", "ffprobe", "nvidia-smi", *recipe_tools):
         require(shutil.which(tool) is not None, f"missing executable: {tool}")
     gpu = _probe("nvidia-smi", "-L")
     require(bool(gpu), "NVIDIA driver probe did not report a GPU")
@@ -61,10 +62,10 @@ def inspect(recipe: str, checkout: Path) -> dict:
         libraries = _probe("ldconfig", "-p") or ""
         for library in ("libGLU.so.1", "libXt.so.6"):
             require(f"{library} " in libraries, f"missing rendering library: {library}")
-    envs = _probe("conda", "env", "list", "--json")
-    conda_names = {Path(path).name for path in json.loads(envs)["envs"]} if envs else set()
-    for env in ("RoboDojo", "demo-policy") if recipe == "conda" else ("demo-policy",):
-        require(env in conda_names, f"missing Conda environment: {env}")
+        envs = _probe("conda", "env", "list", "--json")
+        conda_names = {Path(path).name for path in json.loads(envs)["envs"]} if envs else set()
+        for env in ("RoboDojo", "demo-policy"):
+            require(env in conda_names, f"missing Conda environment: {env}")
 
     actual_revision = _probe("git", "rev-parse", "HEAD", cwd=root)
     require(
@@ -88,33 +89,27 @@ def inspect(recipe: str, checkout: Path) -> dict:
         generated.is_file() and f"{assets}/" in generated.read_text(encoding="utf-8"),
         f"missing or stale generated paths: {generated}",
     )
-    require(
-        (results.is_dir() and os.access(results, os.W_OK))
-        or (not results.exists() and root.is_dir() and os.access(root, os.W_OK)),
-        f"result directory is not writable or creatable: {results}",
-    )
+    if recipe == "conda":
+        require(
+            (results.is_dir() and os.access(results, os.W_OK))
+            or (not results.exists() and root.is_dir() and os.access(root, os.W_OK)),
+            f"result directory is not writable or creatable: {results}",
+        )
 
     mounts = []
     image_cache = None
     if recipe == "docker":
-        for path in (assets, results):
-            require(":" not in str(path), f"Docker volume path cannot contain a colon: {path}")
+        require(":" not in str(assets), f"Docker volume path cannot contain a colon: {assets}")
         mounts = ["-v", f"{assets}:{CONTAINER_ROOT}/Assets:ro"]
         if assets != CONTAINER_ROOT / "Assets":
             mounts.extend(["-v", f"{assets}:{assets}:ro"])
-        mounts.extend(["-v", f"{results}:{CONTAINER_ROOT}/eval_result"])
         docker_info = _probe("docker", "info", "--format", "{{json .Runtimes}}")
-        if not docker_info and shutil.which("sg") and shutil.which("docker"):
-            docker_info = _probe("sg", "docker", "-c", "docker info --format '{{json .Runtimes}}'")
-        require(bool(docker_info), "Docker daemon unavailable")
+        require(bool(docker_info), "Docker daemon unavailable to the current user")
         image_cache = {"tag": image, "status": "unchecked"}
         if docker_info:
             require("nvidia" in json.loads(docker_info), "Docker NVIDIA runtime unavailable")
             image_id = _probe("docker", "image", "inspect", "--format", "{{.Id}}", image)
-            if not image_id and shutil.which("sg"):
-                image_id = _probe(
-                    "sg", "docker", "-c", f"docker image inspect --format '{{{{.Id}}}}' {image}"
-                )
+            require(bool(image_id), f"missing Docker image: {image}")
             image_cache.update(status="present_unverified" if image_id else "missing", id=image_id)
             receipt_path = root / DOCKER_RECEIPT
             try:
@@ -134,38 +129,39 @@ def inspect(recipe: str, checkout: Path) -> dict:
                 image_cache.update(status="present_verified", receipt=str(receipt_path))
 
     script = str(PACKAGE / "recipe.sh")
-    steps = ["source", "install" if recipe == "conda" else "policy", "assets"]
+    steps = ["source", "install" if recipe == "conda" else "docker-build", "assets"]
     commands = [{"argv": ["bash", script, step, str(root)]} for step in steps]
-    smoke_argv = ["bash", script, f"{recipe}-smoke", str(root), "<new-absolute-evidence-dir>"]
-    smoke = {"argv": smoke_argv}
-    if image_cache is not None:
-        if image_cache["status"] == "present_verified":
-            smoke["env"] = {
-                "ROBODOJO_SKIP_BUILD": "1",
-                "ROBODOJO_EXPECTED_IMAGE_ID": image_cache["id"],
-            }
-        else:
-            smoke["env"] = {"ROBODOJO_SKIP_BUILD": "0"}
-            smoke["cached_wheel_alternative"] = [
-                {
-                    "argv": [
-                        "bash",
-                        str(PACKAGE / "build-cached-torch.sh"),
-                        str(root),
-                        image,
-                        "<official-torch-wheel>",
-                        "<new-absolute-build-evidence-dir>",
-                    ]
-                },
-                {
-                    "argv": smoke_argv,
-                    "env": {
-                        "ROBODOJO_SKIP_BUILD": "1",
-                        "ROBODOJO_EXPECTED_IMAGE_ID": "<id-from-build-image-json>",
-                    },
-                },
+    if recipe == "conda":
+        commands.append(
+            {"argv": ["bash", script, "conda-smoke", str(root), "<new-absolute-evidence-dir>"]}
+        )
+    else:
+        commands[1]["skip_if"] = "the pinned local image is already available"
+        commands[1]["cached_wheel_alternative"] = {
+            "argv": [
+                "bash",
+                str(PACKAGE / "build-cached-torch.sh"),
+                str(root),
+                image,
+                "<official-torch-wheel>",
+                "<new-absolute-build-evidence-dir>",
             ]
-    commands.append(smoke)
+        }
+        commands.append(
+            {
+                "argv": [
+                    "openplatform",
+                    "eval",
+                    "<submission-dir>",
+                    "--bench",
+                    "robodojo",
+                    "--recipe",
+                    "docker",
+                    "--preset",
+                    "smoke",
+                ]
+            }
+        )
     return {
         "benchmark": "robodojo",
         "recipe": recipe,

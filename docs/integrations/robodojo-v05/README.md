@@ -1,5 +1,7 @@
 # V05 RoboDojo 配方
 
+本页保留上游官方入口的 V05 验收流程。OpenPlatform 0.1.1 的容器评测入口见 [Docker 安装与评测](../robodojo-docker.md)。
+
 本地用 `doctor` 检查路径、固定 revision、Conda 环境、GPU 和 Docker runtime。退出码 `1` 表示有缺项。`prepare` 返回命令数组、解析后的路径和缓存状态，供评审和执行。仅存在标签的镜像显示为 `present_unverified`，计划给出上游构建和已校验 wheel 的缓存构建命令。Docker smoke 通过后写入 checkout 下的 `.openplatform-docker-smoke.json`。凭据与当前镜像 ID、源码及资产 revision 匹配时，计划显示 `present_verified` 并给出带镜像 ID 检查的复用命令。资产 marker 记录下载完成的快照 revision，运行证据另存布局和生成配置的 SHA-256。
 
 V05 依次验收 RoboDojo 官方入口的 Conda 与 Docker smoke。通过的官方产物用于 V06 与 OpenPlatform 配对。[官方入口对照协议](../robodojo-comparison.md)

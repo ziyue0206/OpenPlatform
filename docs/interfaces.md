@@ -91,7 +91,7 @@ class BenchmarkPlugin(Protocol):
 
 `Registry` 从安装包内的 `benchmarks/*/benchmark.yaml` 发现插件，支持从仓库外调用。manifest 声明配方、可选 suite／preset 和 I/O profile。轻量插件生成原生评测命令并校验结果，benchmark worker 在独立子进程中通过 SDK client 调用 policy。`dummy` 标记为 `development_fixture`，两个 episode 使用确定性位置评分。配置 `parameters.fault: environment` 可注入环境故障，`parameters.episode_delay` 可延迟第二个 episode。示例 adapter 支持 `adapter_config.fail_inference: true`。
 
-`robodojo` 通过 `preparation` 入口提供 Conda 和 Docker 的计划与诊断。V06 的 `conda` 配方用原生 `EvalEnv` 驱动 `robodojo-arx-x5-joint` profile，`docker` 配方仅提供准备。bridge 从 `EvalEnv` 构造时接入，将原生 `reset`、`update_obs` 和 `get_action` 转发到 SDK。观测保留原生相机、语言、状态和上下文，数组保留 dtype 和 shape。原生 `deploy.py` 决定取动作和执行时机，原生 `EvalEnv` 执行关节控制、终止和计分。动作顺序为左臂 6、左夹爪 1、右臂 6、右夹爪 1，每个字段按原生命名传输。[V05 配方](integrations/robodojo-v05/README.md) · [V06 对照协议](integrations/robodojo-comparison.md)
+`robodojo` 提供 `conda` 和 `docker` 两种评测配方。两种配方都通过原生 `EvalEnv` 驱动 `robodojo-arx-x5-joint` profile。bridge 从 `EvalEnv` 构造时接入，将原生 `reset`、`update_obs` 和 `get_action` 转发到 SDK。观测保留原生相机、语言、状态和上下文，数组保留 dtype 和 shape。原生 `deploy.py` 决定取动作和执行时机，原生 `EvalEnv` 执行关节控制、终止和计分。动作顺序为左臂 6、左夹爪 1、右臂 6、右夹爪 1，每个字段按原生命名传输。 [Docker 配方](integrations/robodojo-docker.md) · [V06 对照协议](integrations/robodojo-comparison.md)
 
 ## Runtime 与 ExecutionSpec
 
@@ -107,7 +107,7 @@ V03 的 `openplatform.runtime.ExecutionSpec` 接受 `argv`、`cwd`、`env`、`ti
 
 `wait` 和 `stop` 返回同一个进程结果，包含 `exited`、`timed_out` 或 `canceled`、原始退出码、耗时和日志路径。超时从启动起计，由监控线程执行。超时或显式取消先发 `SIGTERM`，宽限期后向该组发 `SIGKILL`。父进程自然退出时，仍会清理留在组内的派生进程。清理使用本次启动的新进程组，并在回收组长前完成信号发送。调用方持有 handle 并负责 `wait` 或 `stop`，派生进程须留在原进程组。macOS 使用 `kqueue`，Linux 使用 `waitid`。[Python 进程等待接口](https://docs.python.org/3.11/library/os.html#os.waitid)
 
-原生 runner 先等待 policy 输出就绪地址，`model.runtime.startup_timeout` 控制这一阶段的秒数，默认 15。配方可声明每种角色支持的 GPU 数。RoboDojo Conda 支持每个角色最多一个 GPU，runner 以 `CUDA_VISIBLE_DEVICES` 选择 policy 的设备，模型进程内使用 `cuda:0`，仿真设备号由插件交给原生脚本。
+原生 runner 先等待 policy 输出就绪地址，`model.runtime.startup_timeout` 控制这一阶段的秒数，默认 15。RoboDojo 的两种配方均支持每个角色最多一个 GPU。runner 以 `CUDA_VISIBLE_DEVICES` 选择 policy 的设备，模型进程内使用 `cuda:0`。Conda 直接向原生脚本传宿主机仿真设备号，Docker 只向容器暴露选中的宿主机 GPU，容器内使用 `cuda:0`。Docker 插件在结果收集前核对本次容器已退出并恢复产物所有权。
 
 ## 本地结果契约
 

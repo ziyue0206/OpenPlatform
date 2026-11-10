@@ -149,6 +149,8 @@ def instrument_environment(
     profile="robodojo-arx-x5-joint",
     timeout=120,
     videos=True,
+    safety=False,
+    smoke_control_steps=None,
     exit_on_policy_error=None,
 ):
     """Install the replacement at the constructor's WsModelClient call."""
@@ -178,6 +180,17 @@ def instrument_environment(
         finally:
             module.WsModelClient = native_client
 
+        if smoke_control_steps is not None:
+            if not 0 < smoke_control_steps < env.step_lim:
+                raise ValueError("smoke_control_steps must be below the native control budget")
+            trace.event("smoke_control_budget", native=env.step_lim, requested=smoke_control_steps)
+            env.step_lim = smoke_control_steps
+
+        probe = None
+        if safety:
+            from openplatform.benchmarks.robodojo.safety import SafetyProbe
+
+            probe = SafetyProbe(env, trace)
         reset, take_action, run_eval = env.reset, env.take_action, env.run_eval
         if not videos:
             env._stream_vision = lambda env_idx, frame: None
@@ -186,12 +199,21 @@ def instrument_environment(
 
         @wraps(reset)
         def reset_recorded(seed=None, **options):
+            if probe:
+                probe.finish("partial")
             trace.begin(seed)
+            if probe:
+                probe.open_episode()
             try:
-                return reset(seed=seed, **options)
+                result = reset(seed=seed, **options)
             except Exception as error:
+                if probe:
+                    probe.finish("partial")
                 trace.event("reset_error", error_type=type(error).__name__, error=str(error))
                 raise
+            if probe:
+                probe.start()
+            return result
 
         @wraps(take_action)
         def take_recorded(action):
@@ -225,9 +247,13 @@ def instrument_environment(
             try:
                 returned = run_eval()
             except Exception as error:
+                if probe:
+                    probe.finish("partial")
                 trace.event("eval_error", error_type=type(error).__name__, error=str(error))
                 raise
             after = env.success_nums + env.fail_nums
+            if probe:
+                probe.finish("complete" if after > count else "partial")
             if after > count:
                 result = wire_value(env.eval_result["details"][after - 1])
                 trace.event(
@@ -263,6 +289,7 @@ def install_from_environment(module):
         policy_calls=enabled("POLICY_CALLS"),
         observations=enabled("OBSERVATIONS", "0"),
     )
+    smoke_steps = os.environ.get("OPENPLATFORM_RD_SMOKE_CONTROL_STEPS")
     instrument_environment(
         module,
         trace,
@@ -270,6 +297,8 @@ def install_from_environment(module):
         profile=os.environ.get("OPENPLATFORM_RD_PROFILE", "robodojo-arx-x5-joint"),
         timeout=float(os.environ.get("OPENPLATFORM_RD_RPC_TIMEOUT", "120")),
         videos=enabled("VIDEOS"),
+        safety=enabled("SAFETY", "0"),
+        smoke_control_steps=int(smoke_steps) if smoke_steps else None,
         # This hook runs in the owned simulator subprocess. Kit's implicit
         # shutdown can stall with open video pipes after a policy exception.
         exit_on_policy_error=os._exit,

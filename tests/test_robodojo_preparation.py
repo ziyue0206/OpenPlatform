@@ -1,27 +1,31 @@
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from openplatform.benchmark import Registry
-from openplatform.benchmarks.robodojo import preparation
+from openplatform.benchmark import EvalContext, PolicyEndpoint, Registry
+from openplatform.benchmarks.robodojo import docker, plugin, preparation
 from openplatform.benchmarks.robodojo.verify import DOCKER_RECEIPT, record_docker_image, verify
 from openplatform.cli import app
+from openplatform.schemas import CollectionSpec
 
 runner = CliRunner()
 
 
-def test_manifest_keeps_docker_preparation_and_enables_native_eval():
+def test_manifest_enables_docker_and_conda_eval():
     registry = Registry()
     manifest = registry.describe("robodojo")
-    assert manifest.status == "native_eval"
+    assert manifest.default_recipe == "docker"
     assert set(manifest.recipes) == {"conda", "docker"}
     assert manifest.recipes["conda"].eval_enabled
-    assert not manifest.recipes["docker"].eval_enabled
+    assert manifest.recipes["docker"].eval_enabled
+    assert manifest.recipes["docker"].supports_safety
     assert type(registry.load(manifest)).__name__ == "RoboDojoPlugin"
+    assert type(registry.load(manifest, "docker")).__name__ == "RoboDojoDockerPlugin"
 
 
 def test_docker_plan_resolves_checkout_and_cache_without_writing(tmp_path, monkeypatch):
@@ -50,8 +54,6 @@ def test_docker_plan_resolves_checkout_and_cache_without_writing(tmp_path, monke
             return '{"nvidia": {}}'
         if argv[:3] == ("docker", "image", "inspect"):
             return "sha256:fixture"
-        if argv[:2] == ("conda", "env"):
-            return '{"envs": ["/conda/demo-policy"]}'
         if argv == ("nvidia-smi", "-L"):
             return "GPU 0: test fixture"
         pytest.fail(f"unexpected probe {argv}")
@@ -74,18 +76,12 @@ def test_docker_plan_resolves_checkout_and_cache_without_writing(tmp_path, monke
         f"{assets}:/workspace/RoboDojo/Assets:ro",
         "-v",
         f"{assets}:{assets}:ro",
-        "-v",
-        f"{root}/eval_result:/workspace/RoboDojo/eval_result",
     ]
     assert plan["image_cache"]["status"] == "present_unverified"
     assert plan["image_cache"]["id"] == "sha256:fixture"
-    assert plan["commands"][-1]["argv"][2:] == [
-        "docker-smoke",
-        str(root),
-        "<new-absolute-evidence-dir>",
-    ]
-    assert plan["commands"][-1]["env"] == {"ROBODOJO_SKIP_BUILD": "0"}
-    assert plan["commands"][-1]["cached_wheel_alternative"][0]["argv"][1].endswith(
+    assert plan["commands"][1]["argv"][2] == "docker-build"
+    assert plan["commands"][-1]["argv"][:2] == ["openplatform", "eval"]
+    assert plan["commands"][1]["cached_wheel_alternative"]["argv"][1].endswith(
         "build-cached-torch.sh"
     )
     (root / DOCKER_RECEIPT).write_text(
@@ -101,11 +97,62 @@ def test_docker_plan_resolves_checkout_and_cache_without_writing(tmp_path, monke
     )
     verified = preparation.inspect("docker", root)
     assert verified["image_cache"]["status"] == "present_verified"
-    assert verified["commands"][-1]["env"] == {
-        "ROBODOJO_SKIP_BUILD": "1",
-        "ROBODOJO_EXPECTED_IMAGE_ID": "sha256:fixture",
-    }
+    assert verified["image_cache"]["id"] == "sha256:fixture"
     assert not (root / "eval_result").exists()
+
+
+def test_docker_eval_isolates_gpu_and_outputs_and_removes_only_its_container(tmp_path, monkeypatch):
+    root = tmp_path / "checkout with spaces"
+    root.mkdir()
+    attempt = tmp_path / "attempt"
+    native = attempt / "native"
+    native.mkdir(parents=True)
+    instance = plugin.RoboDojoDockerPlugin()
+    parameters = instance.resolve_parameters({"checkout": str(root), "smoke_control_steps": 24})
+    with pytest.raises(ValueError, match="simulator_python"):
+        plugin.RoboDojoPlugin().resolve_parameters(parameters)
+    ctx = EvalContext(attempt, parameters, None, "smoke", (1,), CollectionSpec(safety=True))
+    endpoint = PolicyEndpoint("ws://127.0.0.1:12345", "robodojo-arx-x5-joint")
+    report = {
+        "ready": True,
+        "layouts": ["fixture.json"],
+        "docker_volume_args": ["-v", f"{root}/Assets:/workspace/RoboDojo/Assets:ro"],
+        "image_cache": {"id": "sha256:fixture"},
+    }
+    monkeypatch.setattr(plugin, "inspect", lambda *_: report)
+    monkeypatch.setenv("OMNI_KIT_ACCEPT_EULA", "YES")
+    with pytest.raises(plugin.BenchmarkFailure, match="requires the smoke preset"):
+        instance.build_eval(replace(ctx, preset="full"), endpoint)
+    spec = instance.build_eval(ctx, endpoint)
+    argv = list(map(str, spec.argv))
+    assert argv[:5] == ["docker", "run", "--rm", "--init", "--pull=never"]
+    assert "--network=host" in argv
+    assert "OPENPLATFORM_RD_SAFETY=1" in argv
+    assert "OPENPLATFORM_RD_SMOKE_CONTROL_STEPS=24" in argv
+    assert json.loads((native / "launch.json").read_text())["smoke_control_steps"] == 24
+    assert argv[argv.index("--gpus") + 1] == "device=1"
+    assert argv[argv.index("--device_id") + 1] == "0"
+    assert argv[argv.index("sha256:fixture") + 1 :][:2] == [
+        "bash",
+        "/workspace/RoboDojo/scripts/eval_policy.sh",
+    ]
+    results = attempt / ".robodojo-results"
+    assert f"{results}:/workspace/RoboDojo/eval_result" in argv
+    assert not (root / "eval_result").exists()
+
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        stdout = "own-container\n" if command[2] == "ls" else ""
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setattr(docker.subprocess, "run", run)
+    run_id = argv[argv.index("--label") + 1].split("=", 1)[1]
+    assert docker.finish(ctx, run_id) == results
+    assert commands[0][-1] == f"label=io.openplatform.robodojo.run={run_id}"
+    assert commands[1] == ["docker", "container", "rm", "--force", "own-container"]
+    assert "sha256:fixture" in commands[2]
 
 
 def test_doctor_reports_missing_resources_and_prepare_still_prints_plan(tmp_path, monkeypatch):
@@ -119,13 +166,12 @@ def test_doctor_reports_missing_resources_and_prepare_still_prints_plan(tmp_path
     assert "commands" not in report
     assert report["image_cache"]["status"] == "unchecked"
     for message in (
-        "missing executable: conda",
+        "missing executable: docker",
         "wrong revision",
         "asset revision",
         "stack_bowls layouts",
         "stale generated paths",
         "Docker daemon unavailable",
-        "result directory is not writable",
     ):
         assert any(message in issue for issue in report["issues"])
     prepare = runner.invoke(app, ["prepare", *args])

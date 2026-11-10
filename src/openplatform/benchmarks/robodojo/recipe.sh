@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 recipe_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-step="${1:?usage: recipe.sh source|install|policy|assets|conda-smoke|docker-smoke CHECKOUT [NEW_EVIDENCE_DIR]}"
+step="${1:?usage: recipe.sh source|install|policy|assets|docker-build|conda-smoke|docker-smoke CHECKOUT [NEW_EVIDENCE_DIR]}"
 checkout="${2:?provide an absolute checkout path}"
 [[ "$checkout" == /* ]] || { echo "checkout must be absolute" >&2; exit 2; }
 
@@ -78,6 +78,14 @@ fi
 cd "$checkout"
 check_source
 case "$step" in
+  docker-build)
+    [[ "${OMNI_KIT_ACCEPT_EULA:-}" == YES ]] || {
+      echo 'Accept NVIDIA Isaac Sim terms and set OMNI_KIT_ACCEPT_EULA=YES before building.' >&2
+      exit 2
+    }
+    docker_command build --tag "$(pin image)" "$PWD"
+    docker_command image inspect --format '{{.Id}}' "$(pin image)"
+    ;;
   install)
     [[ "${OMNI_KIT_ACCEPT_EULA:-}" == YES ]] || {
       echo 'Accept NVIDIA Isaac Sim terms and set OMNI_KIT_ACCEPT_EULA=YES before installing.' >&2

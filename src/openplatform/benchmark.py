@@ -13,10 +13,12 @@ from openplatform.schemas import CollectionSpec, EvalId, Name, Options, _Schema
 class Recipe(_Schema):
     version: Name
     io_profile: Name
+    plugin: Name | None = None
     default_suite: Name
     suites: list[Name]
     presets: list[Name]
     eval_enabled: bool = True
+    supports_safety: bool = False
     max_policy_gpus: Literal[0, 1] = 0
     max_environment_gpus: Literal[0, 1] = 0
 
@@ -93,8 +95,9 @@ class Registry:
         except KeyError:
             raise ValueError(f"unknown benchmark {benchmark!r}") from None
 
-    def load(self, manifest: BenchmarkManifest) -> BenchmarkPlugin:
-        if manifest.plugin is None:
+    def load(self, manifest: BenchmarkManifest, recipe: str | None = None) -> BenchmarkPlugin:
+        entry = (manifest.recipes[recipe].plugin if recipe is not None else None) or manifest.plugin
+        if entry is None:
             raise ValueError(f"{manifest.id} supports preparation only; eval is unavailable")
-        module, _, name = manifest.plugin.partition(":")
+        module, _, name = entry.partition(":")
         return getattr(import_module(module), name)()

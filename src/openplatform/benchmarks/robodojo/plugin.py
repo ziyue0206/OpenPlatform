@@ -1,7 +1,8 @@
-"""Single-environment native RoboDojo recipe."""
+"""Single-environment RoboDojo evaluation through the upstream control loop."""
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 from importlib.util import find_spec
@@ -13,20 +14,26 @@ import yaml
 from pydantic import Field
 
 from openplatform.benchmark import BenchmarkFailure, EvalContext, PolicyEndpoint
+from openplatform.benchmarks.robodojo import docker
 from openplatform.benchmarks.robodojo.episode_index import read_events, write_episode_index
-from openplatform.benchmarks.robodojo.preparation import PACKAGE, inspect
+from openplatform.benchmarks.robodojo.preparation import CONTAINER_ROOT, PACKAGE, inspect
 from openplatform.benchmarks.robodojo.verify import verify
 from openplatform.results import Metric
 from openplatform.runtime import ExecutionSpec, ExitResult
+from openplatform.safety import summarize_safety
 from openplatform.schemas import ConfigPath, Options, _Schema
 
 
 class Parameters(_Schema):
     checkout: ConfigPath
-    simulator_python: ConfigPath
     policy: Literal["demo_policy", "Pi_0"] = "demo_policy"
     timeout: Annotated[float, Field(gt=0, le=86400)] | None = None
     rpc_timeout: Annotated[float, Field(gt=0, le=900)] = 120
+    smoke_control_steps: Annotated[int, Field(strict=True, gt=0, lt=800)] | None = None
+
+
+class CondaParameters(Parameters):
+    simulator_python: ConfigPath
 
 
 def _run_id(ctx: EvalContext) -> str:
@@ -45,20 +52,24 @@ def _episode_budget(ctx: EvalContext, root: Path) -> int:
 
 
 class RoboDojoPlugin:
+    recipe = "conda"
+    parameter_schema: type[Parameters] = CondaParameters
+
     def resolve_parameters(self, parameters: Options) -> Options:
-        config = Parameters.model_validate(parameters)
-        for path in (config.checkout, config.simulator_python):
-            if not path.is_absolute():
-                raise ValueError("RoboDojo checkout and simulator_python must be absolute paths")
-        return config.model_dump(mode="json")
+        config = self.parameter_schema.model_validate(parameters).model_dump(mode="json")
+        for field in ("checkout", "simulator_python"):
+            if field in config and not Path(config[field]).is_absolute():
+                raise ValueError(f"RoboDojo {field} must be an absolute path")
+        return config
 
     def build_eval(self, ctx: EvalContext, policy: PolicyEndpoint) -> ExecutionSpec:
         parameters = ctx.parameters
+        smoke_steps = parameters.get("smoke_control_steps")
+        if smoke_steps is not None and ctx.preset != "smoke":
+            raise BenchmarkFailure("preflight", "smoke_control_steps requires the smoke preset")
         root = Path(parameters["checkout"]).resolve()
-        python = Path(parameters["simulator_python"])
-        if not python.is_file() or not os.access(python, os.X_OK):
-            raise BenchmarkFailure("preflight", f"simulator Python is not executable: {python}")
-        report = inspect("conda", root)
+        is_docker = self.recipe == "docker"
+        report = inspect(self.recipe, root)
         if not report["ready"]:
             raise BenchmarkFailure(
                 "preflight", "RoboDojo prerequisites: " + ", ".join(report["issues"])
@@ -71,17 +82,18 @@ class RoboDojoPlugin:
         timeout = parameters["timeout"] or (14400 if ctx.preset == "full" else 2700)
         endpoint = urlsplit(policy.url)
         gpu = ctx.environment_gpu_ids[0] if ctx.environment_gpu_ids else 0
+        eval_root = CONTAINER_ROOT if is_docker else root
         launch = [
             "bash",
-            root / "scripts/eval_policy.sh",
+            eval_root / "scripts/eval_policy.sh",
             "--root_dir",
-            root,
+            eval_root,
             "--task_name",
             "stack_bowls",
             "--env_cfg_type",
             "arx_x5",
             "--device_id",
-            str(gpu),
+            "0" if is_docker else str(gpu),
             "--policy_name",
             parameters["policy"],
             "--port",
@@ -100,7 +112,6 @@ class RoboDojoPlugin:
             "false",
         ]
         env = {
-            "PATH": os.pathsep.join((str(python.parent), os.environ.get("PATH", ""))),
             "PYTHONPATH": str(PACKAGE / "hooks"),
             "OPENPLATFORM_RD_CORE_DIR": str(PACKAGE.parents[1]),
             "OPENPLATFORM_RD_SDK_DIR": str(Path(find_spec("openplatform_sdk").origin).parent),
@@ -111,11 +122,22 @@ class RoboDojoPlugin:
             "OPENPLATFORM_RD_EVIDENCE": str(ctx.native_dir),
             "OPENPLATFORM_RD_PROFILE": policy.io_profile,
             "OPENPLATFORM_RD_RPC_TIMEOUT": str(parameters["rpc_timeout"]),
+            "OPENPLATFORM_RD_SMOKE_CONTROL_STEPS": "" if smoke_steps is None else str(smoke_steps),
             **{
                 f"OPENPLATFORM_RD_{key.upper()}": str(int(value))
                 for key, value in ctx.collection.model_dump().items()
             },
         }
+        image_id = None
+        if is_docker:
+            image_id = report["image_cache"]["id"]
+            launch = docker.command(ctx, report, _run_id(ctx), gpu, launch, env)
+            env = {}
+        else:
+            python = Path(parameters["simulator_python"])
+            if not python.is_file() or not os.access(python, os.X_OK):
+                raise BenchmarkFailure("preflight", f"simulator Python is not executable: {python}")
+            env["PATH"] = os.pathsep.join((str(python.parent), os.environ.get("PATH", "")))
         (ctx.native_dir / "launch.json").write_text(
             json.dumps(
                 {
@@ -123,7 +145,9 @@ class RoboDojoPlugin:
                     "env": env,
                     "cwd": str(root),
                     "requested_episodes": episodes,
+                    **({"smoke_control_steps": smoke_steps} if smoke_steps is not None else {}),
                     "timeout_seconds": timeout,
+                    **({"image_id": image_id} if is_docker else {}),
                 },
                 indent=2,
             )
@@ -141,9 +165,18 @@ class RoboDojoPlugin:
 
     def collect(self, ctx: EvalContext, process: ExitResult) -> list[Metric]:
         p = ctx.parameters
+        if self.recipe == "docker":
+            results = docker.finish(ctx, _run_id(ctx))
+        else:
+            results = Path(p["checkout"]) / "eval_result"
+        if ctx.collection.safety:
+            try:
+                summarize_safety(ctx.native_dir)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                logging.getLogger(__name__).warning("Safety aggregation failed: %s", error)
         original = (
-            Path(p["checkout"])
-            / "eval_result/RoboDojo/stack_bowls"
+            results
+            / "RoboDojo/stack_bowls"
             / p["policy"]
             / "arx_x5"
             / f"0_ckpt_name={_policy_label(p)},action_type=joint"
@@ -204,3 +237,8 @@ class RoboDojoPlugin:
                 scope="eval",
             ),
         ]
+
+
+class RoboDojoDockerPlugin(RoboDojoPlugin):
+    recipe = "docker"
+    parameter_schema = Parameters

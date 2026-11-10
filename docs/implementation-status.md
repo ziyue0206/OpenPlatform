@@ -1,6 +1,6 @@
 # 实施记录
 
-下文中的路径与版本为各轮实际验收环境。原始视频、日志和证据包保存在本地 `runs/`，与源码仓库分开管理。当前安装入口见 [RoboDojo 安装指南](integrations/robodojo-v08/README.md)。
+下文中的路径与版本为各轮实际验收环境。原始视频、日志和证据包与源码仓库分开管理。当前安装入口见 [RoboDojo Docker 安装指南](integrations/robodojo-docker.md)。
 
 ## V00 RoboDojo 调查
 
@@ -280,3 +280,16 @@ macOS x86_64、CPython 3.11.18。`OPENPLATFORM_TEST_ROBODOJO=/private/tmp/openpl
 5 集路径的 `native/` 产物约 30.0 MB，保留原生视频与轨迹，完整 RGB 观测数组关闭。退出后无活跃的本轮仿真、policy 或 ffmpeg 进程，两张 GPU 均为 1 MiB、0% 利用率。
 
 本地证据包 `runs/v08-robodojo-evidence.tar.gz` 通过 `gzip -t`、`tar -tzf` 和内容检查，含两份原生结果、18 路视频、两份轨迹流、独立核验、安装与续装日志、实际 CLI 状态及项目 bundle。SHA-256 为 `a3d518638287b1164c98b73ab3f9c6ee0f5411d85964251e769a50df008472eb`。
+
+## 0.1.1 RoboDojo Docker 发布验收
+
+2026-11-10，在 Ubuntu 22.04.4 x86_64、RTX 4090、驱动 570.153.02 和 Docker Engine 29.9.3 上执行。复用 V05 已验收的 RoboDojo 镜像 `sha256:5fa3b3009a5cecabe555f7c53633c4c3e43a91171eb72f468916b6c46a5aafcc`，以及 V08 checkout 的固定资产。编排包升级为 `0.1.1`，SDK 保持 `0.1.0`。从独立目录安装源码包，用 uv 管理的 CPython 3.11.18 创建编排、SDK client 和参考策略三个隔离环境。Docker 成为默认评测配方，已有 Conda 提交继续沿用原配置。
+
+| 检查 | 结果 |
+| --- | --- |
+| 锁定安装与 CPU | `uv sync --locked --no-editable`、`uv build --offline --all-packages --wheel`、Ruff、shell 语法、`validate --check-paths`、Docker `doctor` 和 `prepare` 均通过。Linux pytest 为 65 项通过、1 项 macOS 专用检查跳过。独立 SDK client 与 policy 的握手、状态顺序、错误恢复和超时检查通过。 |
+| Docker smoke | 首轮集成构建在宿主机 GPU 1 完成布局 0，执行 800 步，生成 3 路 640×480、各 801 帧视频。原生 JSON 与 V05 同镜像官方 Docker smoke 逐字段相同。仿真进程耗时 434.5 秒，包含容器卷首次初始化和运行时扩展获取。CLI 状态为 `succeeded`。 |
+| Docker 取消 | 发布候选版在宿主机 GPU 0 执行 6 条动作后收到 `SIGINT`，CLI 状态 `canceled`、退出码 130。动作记录和 episode 索引保留，容器已移除，归档文件归宿主机用户所有。 |
+| Docker 五集验收 | 发布候选版在宿主机 GPU 1 运行 `--preset full`，原生请求 25 集。按验收范围在第 5 集结果写盘后发送 `SIGINT`，第 6 集未启动。CLI 耗时 937 秒，状态 `canceled`，退出码 130。布局 0–4 的 5 集均到达 800 步上限，任务成功率和原生分数均为 0。原生 JSON 与轨迹逐集一致，保留 4,000 条动作、15 路 640×480 视频，每路 801 帧。结果文件归宿主机用户所有，容器已移除，两个 GPU 均恢复空闲。 |
+
+单集 smoke 原始文件位于服务器 `/mnt/openplatform-v05/work/v08-docker.cCfhdc/`。发布候选版的源码包摘要、wheel 摘要、终态和验收汇总 `five-verified.json` 保存在 `/mnt/openplatform-v05/work/openplatform-0.1.1-docker.KsJWEl/evidence/`。本轮复用了 V05 的本地镜像，Docker 冷构建、25 集自然结束和第三方复现待独立验证。安装步骤见 [Docker 发布指南](integrations/robodojo-docker.md)。

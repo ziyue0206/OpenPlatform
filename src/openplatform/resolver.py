@@ -52,6 +52,8 @@ def resolve(spec: ExperimentSpec, registry: Registry) -> ResolvedExperiment:
             raise ValueError(f"{item.id}: unknown recipe {item.recipe!r} for {manifest.id}")
         if not recipe.eval_enabled:
             raise ValueError(f"{item.id}: {item.recipe} supports preparation only")
+        if spec.collection.safety and not recipe.supports_safety:
+            raise ValueError(f"{item.id}: collection.safety is unavailable for {item.recipe}")
         devices = {}
         for role in ("policy", "environment"):
             field = f"{role}_gpu_ids"
@@ -67,7 +69,7 @@ def resolve(spec: ExperimentSpec, registry: Registry) -> ResolvedExperiment:
         if item.preset is not None and item.preset not in recipe.presets:
             raise ValueError(f"{item.id}: unknown preset {item.preset!r} for {item.recipe}")
 
-        plugin = registry.load(manifest)
+        plugin = registry.load(manifest, item.recipe)
         try:
             parameters = plugin.resolve_parameters(item.parameters)
         except ValidationError as error:

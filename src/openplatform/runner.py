@@ -157,7 +157,7 @@ class ExperimentRunner:
                 "device": "cuda:0" if item.policy_gpu_ids else "cpu",
                 "io_profile": item.io_profile,
                 "evidence_dir": str(ctx.native_dir),
-                "collection": ctx.collection.model_dump(),
+                "collection": ctx.collection.model_dump(exclude={"safety"}),
             }
             config_path = ctx.attempt_dir / "policy_config.json"
             run.artifacts.put(

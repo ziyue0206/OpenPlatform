@@ -4,23 +4,30 @@ OpenPlatform 是面向具身研究的本地 benchmark 集成工具包。用户�
 
 目标是让研究者把时间花在模型和实验上：工具包维护 benchmark 的依赖配方、评测入口与结果收集；用户维护模型加载和输入输出适配。统一的是实验执行方式，各 benchmark 的任务语义、控制方式和原生评分仍分别保留。
 
-## 0.1.0 测试版
+## 0.2.1 预览版
 
-CPU fixture `dummy` 支持 `list`、`eval`、`run`、`status` 和 Python `ExperimentRunner`。RoboDojo Conda 已在干净环境通过单集 smoke 和 5 个有效 episode 的多布局验收。同一 π0 权重的双路对照已在 V06 完成。原生 25 集自然结束、外部复现和 GitHub 托管 CI 待验证。此测试版供私有仓库使用。[验收记录](docs/implementation-status.md) · [上传到 GitHub](docs/github-upload.md)
+| 配方 | 已验证范围 |
+| --- | --- |
+| RoboDojo Docker（默认） | Linux RTX、单集 smoke、5 集多布局验收。支持默认关闭的安全探头，已做 Docker PhysX 信号与短程 A/B 验收。 |
+| RoboDojo Conda | Linux RTX 原生评测与可选安全探头，已对照完整单集的 8,000 个物理子步。 |
+| CPU `dummy` | 验证 CLI、Python runner、隔离的 SDK policy 和本地产物链路。 |
+
+[0.2.1 发布说明](docs/releases/v0.2.1.md) · [GitHub 发布步骤](docs/github-upload.md)
 
 ## RoboDojo 快速开始
 
-从 [安装指南和支持矩阵](docs/integrations/robodojo-v08/README.md) 准备固定 checkout、资产、仿真环境和独立 SDK policy 环境。生成 `demo/submission.yaml` 后，使用已安装的 OpenPlatform CLI 执行。
+按 [Docker 安装指南](docs/integrations/robodojo-docker.md) 准备固定 checkout、资产、镜像和独立 SDK policy 环境。生成 `demo/submission.yaml` 后，使用已安装的 OpenPlatform CLI 执行。
 
 ```bash
 cli="$OP/.venv/bin/openplatform"
-"$cli" doctor --bench robodojo --recipe conda --checkout "$RD"
-"$cli" prepare --bench robodojo --recipe conda --checkout "$RD"
-"$cli" eval "$W/demo" --bench robodojo --preset smoke --output-dir "$W/runs/smoke"
-"$cli" eval "$W/demo" --bench robodojo --preset full --output-dir "$W/runs/full"
+"$cli" doctor --bench robodojo --recipe docker --checkout "$RD"
+"$cli" prepare --bench robodojo --recipe docker --checkout "$RD"
+"$cli" eval "$W/demo" --bench robodojo --recipe docker --preset smoke --output-dir "$W/runs/smoke"
 ```
 
-`smoke` 请求一个有效 episode。`full` 使用 `stack_bowls` 的原生配额 25，当前集成范围为 ARX X5 joint、标准布局、seed 0、单环境。执行结果给出 `run_dir`，可用 `openplatform status` 查看原始结果和产物。外部复现待验证。
+`smoke` 请求一个有效 episode。`full` 使用 `stack_bowls` 的原生配额 25，当前集成范围为 ARX X5 joint、标准布局、seed 0、单环境。执行结果给出 `run_dir`，可用 `openplatform status` 查看运行状态和产物路径。Conda 部署见 [原生安装指南](docs/integrations/robodojo-v08/README.md)。
+
+在 Docker 或 Conda 提交中设置顶层 `collection.safety: true`，即可随原生评测收集 `safety-events.jsonl` 和 `safety-metrics.jsonl`。 [安全探头使用与验收](docs/integrations/robodojo-safety/README.md)
 
 ## 安装与配置检查
 

@@ -32,6 +32,24 @@ def test_named_action_contract_and_native_map_keys():
     assert wire_value({0: {"shape": (2, 3), "n": np.int64(3)}}) == {"0": {"shape": [2, 3], "n": 3}}
 
 
+@pytest.mark.parametrize("steps", [None, 24])
+def test_smoke_budget_applies_only_when_explicit(tmp_path, steps):
+    env = SimpleNamespace(
+        step_lim=800, reset=lambda: None, take_action=lambda _: None, run_eval=lambda: None
+    )
+    module = SimpleNamespace(create_eval_env=lambda: env, WsModelClient=object)
+    trace = Trace(tmp_path)
+    instrument_environment(module, trace, bridge=False, videos=False, smoke_control_steps=steps)
+    assert module.create_eval_env().step_lim == (800 if steps is None else steps)
+    events = read_events(tmp_path / "events.jsonl")
+    if steps is None:
+        assert events == []
+    else:
+        (budget,) = events
+        assert budget["kind"] == "smoke_control_budget"
+        assert (budget["native"], budget["requested"]) == (800, steps)
+
+
 @pytest.mark.parametrize("collect", [False, True])
 def test_pinned_deploy_replay_over_sdk(tmp_path, collect):
     upstream = os.environ.get("OPENPLATFORM_TEST_ROBODOJO")
