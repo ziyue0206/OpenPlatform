@@ -1,88 +1,129 @@
 # OpenPlatform
 
-OpenPlatform 是面向具身研究的本地 benchmark 集成工具包。用户提供 model 与 adapter，在自己的机器上执行评测，得到本地指标、轨迹、视频和运行日志。
+OpenPlatform runs embodied AI benchmarks locally. You supply a policy and an adapter, and OpenPlatform launches the benchmark, connects it to the policy, and saves native scores, logs, and rollout evidence. Each benchmark uses its own observation and action protocol, termination rules, and scoring logic.
 
-目标是让研究者把时间花在模型和实验上：工具包维护 benchmark 的依赖配方、评测入口与结果收集；用户维护模型加载和输入输出适配。统一的是实验执行方式，各 benchmark 的任务语义、控制方式和原生评分仍分别保留。
+The v0.2.1 preview includes RoboDojo-Sim on Linux with an NVIDIA RTX GPU and a lightweight CPU fixture for checking the installation. Docker is the default RoboDojo recipe. A [Conda recipe](docs/integrations/robodojo-v08/README.md) is also available. See the [v0.2.1 release notes](docs/releases/v0.2.1.md) for the verified scope.
 
-## 0.2.1 预览版
+## Get the source
 
-| 配方 | 已验证范围 |
-| --- | --- |
-| RoboDojo Docker（默认） | Linux RTX、单集 smoke、5 集多布局验收。支持默认关闭的安全探头，已做 Docker PhysX 信号与短程 A/B 验收。 |
-| RoboDojo Conda | Linux RTX 原生评测与可选安全探头，已对照完整单集的 8,000 个物理子步。 |
-| CPU `dummy` | 验证 CLI、Python runner、隔离的 SDK policy 和本地产物链路。 |
-
-[0.2.1 发布说明](docs/releases/v0.2.1.md) · [GitHub 发布步骤](docs/github-upload.md)
-
-## RoboDojo 快速开始
-
-按 [Docker 安装指南](docs/integrations/robodojo-docker.md) 准备固定 checkout、资产、镜像和独立 SDK policy 环境。生成 `demo/submission.yaml` 后，使用已安装的 OpenPlatform CLI 执行。
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and make Python 3.11 available. The preview was tested with Python 3.11 and uv 0.13.7.
 
 ```bash
-cli="$OP/.venv/bin/openplatform"
-"$cli" doctor --bench robodojo --recipe docker --checkout "$RD"
-"$cli" prepare --bench robodojo --recipe docker --checkout "$RD"
-"$cli" eval "$W/demo" --bench robodojo --recipe docker --preset smoke --output-dir "$W/runs/smoke"
+git clone https://github.com/ziyue0206/OpenPlatform.git
+cd OpenPlatform
 ```
 
-`smoke` 请求一个有效 episode。`full` 使用 `stack_bowls` 的原生配额 25，当前集成范围为 ARX X5 joint、标准布局、seed 0、单环境。执行结果给出 `run_dir`，可用 `openplatform status` 查看运行状态和产物路径。Conda 部署见 [原生安装指南](docs/integrations/robodojo-v08/README.md)。
+If you downloaded a source archive, extract it and run the following commands from the directory containing `pyproject.toml`.
 
-在 Docker 或 Conda 提交中设置顶层 `collection.safety: true`，即可随原生评测收集 `safety-events.jsonl` 和 `safety-metrics.jsonl`。 [安全探头使用与验收](docs/integrations/robodojo-safety/README.md)
+## Run a CPU check
 
-## 安装与配置检查
-
-需要 Python 3.11+ 和 uv。验收使用 Python 3.11 与 uv 0.13.7。
+This fixture starts a policy in a separate Python environment and runs two deterministic episodes. It needs no GPU, simulator, or model weights.
 
 ```bash
-uv sync --locked --python 3.11
-uv run --locked openplatform --help
-uv run --locked openplatform validate examples/submissions/eval-only.yaml
-uv run --locked openplatform validate examples/submissions/weightless-policy.yaml
-```
-
-配置填写真实路径后，可加 `--check-paths` 检查本地输入。SDK 可在模型或 benchmark 环境中用 `python -m pip install ./sdk` 单独安装。进程入口和 client 用法见 [跨环境通信](docs/interfaces.md#跨环境通信)，双环境验收命令和结果见 [实施记录](docs/implementation-status.md)。
-
-## CPU 开发 fixture
-
-```bash
-uv sync --locked --python 3.11
+uv sync --locked --no-dev --no-editable --python 3.11
 UV_PROJECT_ENVIRONMENT=examples/submissions/dummy/.venv \
   uv sync --locked --package openplatform-sdk --no-dev --no-editable --python 3.11
-uv run --locked openplatform list
-uv run --locked openplatform eval examples/submissions/dummy --bench dummy --preset smoke
-uv run --locked openplatform run examples/submissions/dummy/submission.yaml
-# 用上一条命令返回的 run_dir 替换路径
-uv run --locked openplatform status ./runs/RUN_ID
+.venv/bin/openplatform list
+.venv/bin/openplatform run examples/submissions/dummy/submission.yaml \
+  --output-dir runs/cpu
 ```
 
-fixture 的两个 episode 预期一成功、一失败，`success_rate` 为 `0.5`，评测正常完成。policy 在单独的 Python 环境和进程中运行，通过本机回环连接。结果保存到 `runs/`，包含配置快照、原始结果、指标和日志。Python 调用见 [核心接口](docs/interfaces.md#python-与-cli-入口)。
+Expect a run status of `succeeded` and a `success_rate` of `0.5`, with one successful episode and one failed episode. The CLI prints the `run_dir` to use when inspecting results.
 
-## 项目原则
+## Run RoboDojo with Docker
 
-1. **Eval 优先。** Base 或 checkpoint 都可以尝试评测；没有目标 benchmark 的 SFT、训练脚本或训练数据，不阻断 eval。
-2. **用户只维护模型侧。** 必要输入是模型、adapter 及其可运行环境描述；评测选择可以来自 CLI 或 YAML。工具包不要求用户再编写 benchmark 启动和评分脚本。
-3. **逐个集成。** 每次只新增一个 benchmark 插件，持续扩展覆盖范围，避免把每个 benchmark 的特殊分支写进通用 runner。
-4. **原生协议优先。** 不把不同动作空间强行变成同一种语义，不擅自修改终止条件和指标计算方式。
-5. **低分也是结果。** 正常完成的失败任务与运行错误分别记录；接口错误不能伪装成 0 分。
-6. **实验可追溯。** 保存实际 checkpoint、adapter、依赖、benchmark、参数和 seed。不同 benchmark 默认不合成一个总分。
-7. **Training 可选。** 训练记录帮助解释比较条件；可选训练执行后置，不自动赋予实验公平性。
+The current integration runs `stack_bowls` with ARX X5, joint control, seed 0, standard layouts, and one simulator environment. The simulator runs in Docker, while the CLI and policy run on the host. Build the pinned simulator image locally from the upstream RoboDojo checkout.
 
-## 研究定位
+### 1. Check the host and prepare RoboDojo
 
-OpenPlatform 研究如何通过统一工具包复用各 benchmark 的原生控制循环，并用从 policy 调用到实际动作与评分的证据解释结果差异。每个 benchmark 以官方入口作为实测基线，首个实验用 RoboDojo 衡量协议保真、差异定位和接入成本。[研究问题](docs/mvp.md#研究问题与预期贡献) · [RoboDojo 官方入口对照协议](docs/integrations/robodojo-comparison.md)
+Use a Linux x86-64 host with an NVIDIA RTX GPU, a working NVIDIA driver, Docker Engine, NVIDIA Container Toolkit, Git, Bash, Python 3.11, and FFmpeg with `ffprobe`. Check that `nvidia-smi` and `docker info` work as your user. Plan for about 150 GiB across the working directory and Docker storage for assets, images, build caches, and results.
 
-## 开发文档
+From the OpenPlatform source directory, run these commands in the same Bash session. Set `OMNI_KIT_ACCEPT_EULA=YES` after reviewing and accepting the [NVIDIA Isaac Sim 5.1.0 terms](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/common/licenses-isaac-sim.html).
 
-| 文档 | 内容 |
+```bash
+export OP="$(pwd -P)"
+export W="$HOME/openplatform-work"
+export RD="$W/src/RoboDojo"
+mkdir -p "$W/src"
+
+uv venv --python 3.11 "$W/tools"
+uv pip install --python "$W/tools/bin/python" 'huggingface_hub==1.3.7' 'click>=8.1,<9'
+export PATH="$W/tools/bin:$PATH"
+export OMNI_KIT_ACCEPT_EULA=YES
+
+recipe="$OP/src/openplatform/benchmarks/robodojo/recipe.sh"
+bash "$recipe" source "$RD"
+bash "$recipe" assets "$RD"
+bash "$recipe" docker-build "$RD"
+```
+
+`source` pins RoboDojo and its submodules. `assets` downloads the fixed asset revision and sets up paths for this checkout. `docker-build` builds `robodojo:v00-f57e163`. You can reuse a trusted local image built from the same pin. See the [Docker setup guide](docs/integrations/robodojo-docker.md) for cache locations and build details.
+
+### 2. Install OpenPlatform and run the reference policy
+
+```bash
+cd "$OP"
+uv sync --locked --no-dev --no-editable --python 3.11
+UV_PROJECT_ENVIRONMENT="$W/policy" \
+  uv sync --locked --package openplatform-sdk --no-dev --no-editable --python 3.11
+uv pip install --python "$W/policy/bin/python" -e "$RD/XPolicyLab"
+
+"$OP/.venv/bin/python" docs/integrations/robodojo-v08/configure-demo.py \
+  "$RD" "$W/policy/bin/python" "$W/demo" --recipe docker --gpu 0
+
+cli="$OP/.venv/bin/openplatform"
+"$cli" validate "$W/demo/submission.yaml" --check-paths
+"$cli" doctor --bench robodojo --recipe docker --checkout "$RD"
+"$cli" prepare --bench robodojo --recipe docker --checkout "$RD"
+"$cli" eval "$W/demo" --bench robodojo --recipe docker --preset smoke \
+  --output-dir "$W/runs/smoke"
+```
+
+`configure-demo.py` creates a new directory and selects host GPU 0 for simulation. Choose another GPU with `--gpu` or change `resources.environment_gpu_ids` in the generated YAML. If you already have a generated submission, edit it in place and start at `validate`.
+
+`smoke` requests one episode. The bundled reference policy needs no checkpoint and serves as an integration check. A task failure can still produce a successful CLI run with a valid score. When ready to use the native 25-episode quota, select `--preset full` and use a separate output directory. Docker acceptance covered the one-episode smoke and five completed episodes from a multi-layout run. The full 25-episode run remains to be verified.
+
+### 3. Enable the safety probe (optional)
+
+Add or update the top-level `collection` block in `$W/demo/submission.yaml`, then rerun the smoke command. Video, action tracing, and policy call logging can be configured independently. This example turns them off to keep the output small.
+
+```yaml
+collection:
+  safety: true
+  videos: false
+  trace: false
+  policy_calls: false
+```
+
+For a shorter check, add `smoke_control_steps: 24` to the existing `evals[0].parameters` mapping. Keep the other parameters and use `--preset smoke`. Remove the setting to restore the native control budget or before switching to `full`. Isaac Sim startup and scene reset still run.
+
+The probe is off by default and available with both Docker and Conda. When enabled, it adds `safety-events.jsonl` for per-physics-step evidence and `safety-metrics.jsonl` for per-episode contact forces, self-collision, object displacement, and coverage. Missing signals are marked explicitly. See the [safety probe guide](docs/integrations/robodojo-safety/README.md) for the schema, backend limits, and short RTX A/B results.
+
+## Inspect a run
+
+From the OpenPlatform source directory, replace `/path/to/run_dir` with the path printed by the CLI.
+
+```bash
+.venv/bin/openplatform status /path/to/run_dir
+```
+
+| Path relative to `run_dir` | Contents |
 | --- | --- |
-| [MVP 定义](docs/mvp.md) | 研究问题、边界、使用流程与验证方案 |
-| [技术架构](docs/architecture.md) | 本地技术栈、模块职责、目录和运行生命周期 |
-| [模型与实验配置规范](docs/submission.md) | 本地 model、adapter、环境、checkpoint 与可选训练 |
-| [核心接口](docs/interfaces.md) | Python runner、adapter、插件、runtime 和产物协议 |
-| [Benchmark 集成规范](docs/benchmark-integration.md) | 一次新增一个 benchmark 的流程和候选路线 |
-| [开发任务](docs/development-tasks.md) | 任务、依赖、交付物和验收标准 |
-| [Vibe coding 执行计划](docs/vibe-coding-plan.md) | 逐轮开发顺序、可复制任务提示、验收与交接 |
+| `input_config.yaml` and `resolved_config.yaml` | Input and resolved run configuration |
+| `artifacts.json` | Artifact paths, sizes, and SHA-256 digests |
+| `evals/<eval_id>/attempts/0001/metrics.json` | Collected benchmark metrics |
+| `evals/<eval_id>/attempts/0001/logs/` | Benchmark and policy process logs |
+| `evals/<eval_id>/attempts/0001/native/` | Native results and optional traces, videos, and safety JSONL |
 
-示例：[CPU 可运行 fixture](examples/submissions/dummy/submission.yaml)、[有权重 eval](examples/submissions/eval-only.yaml)、[无权重 policy](examples/submissions/weightless-policy.yaml)、[可选 training](examples/submissions/optional-training.yaml)、[插件清单](examples/benchmarks/benchmark.yaml)。
+For RoboDojo, the native `_result.json` contains the original episode results and aggregate score. The `eval` command uses `robodojo` as the eval ID. The `run` command uses each ID declared in the submission.
 
-先完成第一个 benchmark 的本地 eval 闭环，再按同一插件规范逐个集成；本地报告和研究验证随后完善。Training 不阻塞 eval 版本发布。
+## Evaluate your own policy
+
+Start from the [generated demo template](examples/submissions/robodojo-demo/submission.yaml) and the [reference adapter](examples/submissions/robodojo-demo/policy.py). Generate a local Docker submission as above, then replace the model and adapter settings in that submission.
+
+1. Install your model dependencies and the SDK in the policy environment. From the OpenPlatform source directory, run `/path/to/policy/bin/python -m pip install ./sdk`.
+2. Set `model.source.path` to your model directory, `model.runtime.python` to the policy interpreter, and `model.checkpoint` to a path relative to the model directory. Use `null` for a weightless policy.
+3. Set `adapter.source.path` and `adapter.entrypoint` to your adapter directory and `module:Class`. Implement `reset`, `update_obs`, and `get_action` using the benchmark's expected observation and action format.
+4. Keep `recipe: docker` and the absolute `evals[].parameters.checkout` for the pinned RoboDojo checkout. Validate with `--check-paths`, then run `openplatform eval <model-dir> --bench robodojo --recipe docker --preset smoke`. Use `openplatform run <submission.yaml>` to run the evals declared in a YAML file.
+
+Read the [submission schema](docs/submission.md) and [adapter interfaces](docs/interfaces.md) for path resolution, runtime options, and policy methods. For development, see the [architecture](docs/architecture.md) and [benchmark plugin guide](docs/benchmark-integration.md).
